@@ -1,0 +1,19 @@
+services:
+  ml-container:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USER_ID: ${UID}
+        GROUP_ID: ${GID}
+    container_name: cassio_mod_bert
+    runtime: nvidia
+    shm_size: '8gb'  # Ajuste se precisar de mais memória compartilhada para DataLoaders
+    volumes:
+      - C:\Users\Cassio\Projetos\Pesquisa:/home
+      # - /media/sda/eliton:/home/eliton
+    working_dir: /home
+    stdin_open: true
+    tty: true
+    # storage_opt:
+    #   size: 60G  # Limita o espaço do container para 60GB

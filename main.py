@@ -1,9 +1,10 @@
+import gc
 import os
-import numpy as np
-import pandas as pd
+import argparse
 import torch
 import evaluate
-import gc
+import numpy as np
+import pandas as pd
 from datasets import load_dataset
 from ModernBertWithTanH import convert_ln_to_dyt
 from transformers import (
@@ -16,22 +17,21 @@ from transformers import (
 )
 
 seqeval = evaluate.load("seqeval")
-train_bsz, val_bsz = 32, 32
+train_bsz, val_bsz = 16, 16
 lr = 8e-5
 betas = (0.9, 0.98)
 n_epochs = 20
 eps = 1e-6
 wd = 8e-6
-DyT = True
+DyT = False
 
-"""
-    "lener": {"download_reference": "peluz/lener_br",
-    "dataset_names": {"train": "train", "valid": "validation", "test": "test"},
-    "n_labels": 13
-    },
-"""
 
 datasets_dict = {
+     "lener": {
+        "download_reference": "peluz/lener_br",
+        "dataset_names": {"train": "train", "valid": "validation", "test": "test"},
+        "n_labels": 13
+    },
     "bc5cdr": {
         "download_reference": "tner/bc5cdr",
         "dataset_names": {"train": "train", "valid": "validation", "test": "test"},
@@ -49,8 +49,79 @@ datasets_dict = {
         "download_reference": "ncbi/ncbi_disease",
         "dataset_names": {"train": "train", "valid": "validation", "test": "test"},
         "n_labels": 3
+    },
+    "ontonotes": {
+        "download_reference": "tner/ontonotes5",
+        "dataset_names": {"train": "train", "valid": "validation", "test": "test"},
+        "n_labels": 3
     }
 }
+
+def get_args():
+    parser = argparse.ArgumentParser()
+
+    #### REQUIRED ARGUMENTS ####
+    parser.add_argument(
+        "--model_name_or_path",
+        default=None,
+        type=str,
+        required=True,
+        help="Path to pre-trained model or shortcut name",
+    )
+    parser.add_argument(
+        "--saved_model_dir",
+        default=None,
+        type=str,
+        required=False,
+        help="The output directory where the model will be written.",
+    )    
+    #### OTHER PARAMETERS ####
+    parser.add_argument(
+        "--max_seq_length",
+        default=128,
+        type=int,
+        help="The maximum total input sequence length after tokenization. Sequences longer "
+        "than this will be truncated, sequences shorter will be padded.",
+    )
+    parser.add_argument("--do_train", action="store_true", help="Whether to run training.")
+    parser.add_argument("--do_predict", action="store_true", help="Whether to run predictions on the test set.")
+    parser.add_argument("--do_finetune_support", action="store_true", help="Whether to finetune the model on the support set.")
+    parser.add_argument("--train_batch_size", default=8, type=int, help="Batch size per GPU/CPU for training.")
+    parser.add_argument("--eval_batch_size", default=16, type=int, help="Batch size per GPU/CPU for evaluation.")
+    parser.add_argument("--learning_rate", default=5e-5, type=float, help="The initial learning rate for Adam.")
+    parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay")
+    parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
+    parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
+    parser.add_argument("--num_train_epochs", default=1, type=float, help="Total number of training epochs to perform.")
+    parser.add_argument("--no_cuda", action="store_true", help="Avoid using CUDA when available")
+    parser.add_argument("--overwrite_output_dir", action="store_true", help="Overwrite the content of the output directory")
+    parser.add_argument("--seed", type=int, default=42, help="random seed for initialization")
+    parser.add_argument("--n_classes", default=6, type=int, help="number of classes")
+    parser.add_argument("--n_shots", default=5, type=int, help="number of shots.")
+    parser.add_argument("--embedding_dimension", default=32, type=int, help="dimension of output embedding")
+    parser.add_argument("--training_loss", type=str, default="KL", help="What type of loss to use, KL, euclidean, or joint of KL and classification")
+    parser.add_argument("--finetune_loss", type=str, default="KL", help= "What type of loss to use, KL, euclidean, or joint of KL and classification")
+    parser.add_argument("--evaluation_criteria", type=str, default="euclidean", help= "What type of loss to use, KL, euclidean, or euclidean_hidden_state")
+    parser.add_argument("--consider_mutual_O", action="store_true", help= "Do you want consider the distances of all -O tokens with all the other -O tokens too?.")
+    parser.add_argument("--learning_rate_finetuning", default=5e-5, type=float, help="The initial learning rate for Adam during finetune.")
+    parser.add_argument("--select_gpu", type=int, default=0, help="select on which gpu to train.")
+    parser.add_argument("--silent", action="store_true", help="whether to output all INFO in training and finetuning")
+    parser.add_argument("--temp_trans", default=-1, type=float, help="transition re-normalizing temperature")
+
+    args = parser.parse_args()
+
+    if (
+        os.path.exists(args.saved_model_dir)
+        and os.listdir(args.saved_model_dir)
+        and args.do_train
+        and not args.overwrite_output_dir
+    ):
+        raise ValueError(
+            "Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to override.".format(
+                args.output_dir
+            )
+        )
+    return args
 
 class MetricsCallback(TrainerCallback):
     def __init__(self):
@@ -220,8 +291,8 @@ def finetune_ner_datasets(experiment_name: str = None, dataset: str = None, task
 
     return train_res_df, args_df, hf_model, hf_tokenizer
 
-def training_loop(dataset=None, task=None):
-    # Define the experiment name based on the dataset and task
+def do_train(dataset=None, task=None):
+    # Define the experiment name based on the dataset, task and model
     if task is None:
         experiment_name = dataset
     else:
@@ -249,9 +320,10 @@ def training_loop(dataset=None, task=None):
     args_df.to_csv(args_dfs_save_path, index=False)
 
 if __name__ == "__main__":
+    args = get_args()
     for dataset in datasets_dict.keys():
         if dataset == "crossner":
             for task in datasets_dict[dataset]["tasks"]:
-                training_loop(dataset=dataset, task=task)
+                do_train(dataset=dataset, task=task)
         else:
-            training_loop(dataset=dataset, task=None)
+            do_train(dataset=dataset, task=None)
