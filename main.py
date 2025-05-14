@@ -6,7 +6,7 @@ import evaluate
 import numpy as np
 import pandas as pd
 from datasets import load_dataset
-from ModernBertWithTanH import convert_ln_to_dyt
+from models.convert_ln_to_dyt import convert_ln_to_dyt
 from transformers import (
     AutoTokenizer,
     AutoModelForTokenClassification,
@@ -17,45 +17,7 @@ from transformers import (
 )
 
 seqeval = evaluate.load("seqeval")
-train_bsz, val_bsz = 16, 16
-lr = 8e-5
-betas = (0.9, 0.98)
-n_epochs = 20
-eps = 1e-6
-wd = 8e-6
-DyT = False
 
-
-datasets_dict = {
-     "lener": {
-        "download_reference": "peluz/lener_br",
-        "dataset_names": {"train": "train", "valid": "validation", "test": "test"},
-        "n_labels": 13
-    },
-    "bc5cdr": {
-        "download_reference": "tner/bc5cdr",
-        "dataset_names": {"train": "train", "valid": "validation", "test": "test"},
-        "n_labels": 5,
-        "label2id": {"O": 0, "B-Chemical": 1, "B-Disease": 2, "I-Disease": 3, "I-Chemical": 4},
-        "id2label": {0: "O", 1: "B-Chemical", 2: "B-Disease", 3: "I-Disease", 4: "I-Chemical"},
-        "labels": ["O", "B-Chemical", "B-Disease", "I-Disease", "I-Chemical"]
-    },
-    "crossner": {"download_reference": "DFKI-SLT/cross_ner",
-        "tasks": ['conll2003', 'politics', 'science', 'music','literature', 'ai'],
-        "dataset_names": {"train": "train", "valid": "validation", "test": "test"},
-        "n_labels": 79
-    },
-    "ncbi": {
-        "download_reference": "ncbi/ncbi_disease",
-        "dataset_names": {"train": "train", "valid": "validation", "test": "test"},
-        "n_labels": 3
-    },
-    "ontonotes": {
-        "download_reference": "tner/ontonotes5",
-        "dataset_names": {"train": "train", "valid": "validation", "test": "test"},
-        "n_labels": 3
-    }
-}
 
 def get_args():
     parser = argparse.ArgumentParser()
