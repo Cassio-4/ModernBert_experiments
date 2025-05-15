@@ -159,7 +159,7 @@ def run_experiments(config_dir):
         if f.endswith(".json"):
             with open(os.path.join("configs/", f), 'r') as file:
                 config = json.load(file)
-            do_train()
+            do_train(config)
 
 if __name__ == "__main__":
     run_experiments("configs/")
