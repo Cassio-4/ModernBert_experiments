@@ -127,5 +127,4 @@ wandb/
 .pypirc
 
 *.csv
-*.json
 *.safetensors
