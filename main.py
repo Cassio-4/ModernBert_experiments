@@ -109,7 +109,7 @@ def finetune_curr_dataset(config, dataset_name: str = None,
     # Add callback to trainer
     metrics_callback = MetricsCallback()
     trainer.add_callback(metrics_callback)
-
+    print("initializing training...")
     trainer.train()
 
     # 7. Get the training results and hyperparameters
