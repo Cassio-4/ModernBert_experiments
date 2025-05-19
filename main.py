@@ -6,7 +6,7 @@ import evaluate
 import numpy as np
 import pandas as pd
 from models.model_utils import load_model
-from datasets import load_and_preprocess_dataset, unpack_dataset_info
+from datasets_utils import load_and_preprocess_dataset, unpack_dataset_info
 from transformers import (
     AutoTokenizer,
     DataCollatorForTokenClassification,
@@ -136,7 +136,7 @@ def do_train(config):
         
         # Call the finetuning function
         print(f"Finetuning {experiment_name}...")
-        train_res_df, args_df, hf_model, hf_tokenizer = finetune_curr_dataset(config, experiment_name, dataset)
+        train_res_df, args_df, hf_model, hf_tokenizer = finetune_curr_dataset(config, dataset, experiment_name)
         print(f"Training results for {experiment_name}:")
         print(train_res_df.head())
         print(f"Training arguments for {experiment_name}:")

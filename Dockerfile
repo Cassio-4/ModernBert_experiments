@@ -1,6 +1,7 @@
 # CUDA 12.8.
 FROM nvcr.io/nvidia/pytorch:25.04-py3
 
+RUN pip install evaluate transformers datasets
 # Instale dependências necessárias, incluindo g++ e gcc
 #RUN apt-get update && apt-get install -y \
 #    build-essential \
