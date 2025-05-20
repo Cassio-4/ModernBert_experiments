@@ -36,7 +36,9 @@
 FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime
 RUN apt-get update && \
       apt-get -y install sudo
-RUN pip install ninja evaluate transformers[torch] datasets sentence-transformers tiktoken protobuf sentencepiece
+RUN pip install ninja evaluate transformers[torch] datasets sentence-transformers protobuf sentencepiece
 RUN useradd -rm -d /home/ubuntu -s /bin/bash -g root -G sudo -u 1010 ubuntu
+USER root
+RUN chown -R ubuntu:root /home/ubuntu
 USER ubuntu
 WORKDIR /home/ubuntu

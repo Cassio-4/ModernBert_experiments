@@ -1,8 +1,8 @@
 services:
   ubuntu-torch-service:
-    image: ubuntu-torch
+    image: ubuntu-torch-cassio
     volumes: 
-      - C:\Users\Cassio\Projetos\Pesquisa:/home/ubuntu/dev
+      - /home/cassio/ner_finetune/ModernBert_experiments:/home/ubuntu/dev
     tty: true
     stdin_open: true 
     network_mode: "host"
