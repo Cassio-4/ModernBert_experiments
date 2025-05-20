@@ -1,9 +1,9 @@
 {
-  "datasets": ["bc5cdr", "lener", "crossner", "ncbi", "ontonotes"],
+  "datasets": ["lener"],
   "model_checkpoint": "microsoft/mpnet-base",
   "learning_rate": 2e-5,
-  "max_seq_length": 256,
-  "batch_size": 16,
+  "max_seq_length": 512,
+  "batch_size": 32,
   "num_epochs": 10,
   "seed": 42,
   "warmup_steps": 500,

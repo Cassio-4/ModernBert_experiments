@@ -1,9 +1,9 @@
 {
-  "datasets": ["bc5cdr", "lener", "crossner", "ncbi", "ontonotes"],
+  "datasets": ["lener"],
   "model_checkpoint": "distilbert/distilbert-base-uncased",
   "learning_rate": 6e-4,
   "max_seq_length": 512,
-  "batch_size": 16,
+  "batch_size": 32,
   "num_epochs": 10,
   "seed": 42,
   "adam_betas": [0.9, 0.98],

@@ -1,8 +1,9 @@
 {
-  "datasets": ["bc5cdr", "lener", "crossner", "ncbi", "ontonotes"],
+  "datasets": ["lener"],
   "model_checkpoint": "bert-base-uncased",
   "learning_rate": 8e-5,
-  "batch_size": 16,
+  "max_seq_length": 512,
+  "batch_size": 32,
   "num_epochs": 10,
   "seed": 42,
   "dyt": false,
