@@ -21,7 +21,7 @@
 #
 #RUN pip install faiss-gpu accelerate==1.3.0
 #RUN apt update && apt install tmux git -y
-#RUN apt install bash-completion
+
 #RUN echo "source /etc/profile.d/bash_completion.sh" >> ~/.bashrc
 
 # Crie um diretório de trabalho
@@ -33,12 +33,17 @@
 # Comando padrão para executar o container
 #CMD ["/bin/bash", "-l"]
 #########################
-FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime
+#FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime
+FROM pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel
 RUN apt-get update && \
-      apt-get -y install sudo
-RUN pip install ninja evaluate transformers[torch] datasets sentence-transformers protobuf sentencepiece
-RUN useradd -rm -d /home/ubuntu -s /bin/bash -g root -G sudo -u 1010 ubuntu
+      apt-get -y install sudo build-essential
+RUN apt install bash-completion
+RUN pip install ninja evaluate seqeval transformers[torch] datasets sentence-transformers protobuf sentencepiece
+RUN pip install flash-attn --no-build-isolation
+#RUN useradd -rm -d /home/ubuntu -s /bin/bash -g root -G sudo -u 1010 ubuntu
+#USER root
+#RUN chown -R ubuntu:root /home/ubuntu
+#USER ubuntu
 USER root
-RUN chown -R ubuntu:root /home/ubuntu
-USER ubuntu
 WORKDIR /home/ubuntu
+#WORKDIR /home/

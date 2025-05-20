@@ -2,6 +2,7 @@ import gc
 import os
 import json
 import torch
+torch.set_float32_matmul_precision('high')
 import evaluate
 import numpy as np
 import pandas as pd
@@ -98,7 +99,7 @@ def finetune_curr_dataset(config, dataset_name: str = None,
         metric_for_best_model="eval_f1",
         greater_is_better=True,
         bf16=True,
-        bf16_full_eval=True,
+        bf16_full_eval=False,
         push_to_hub=False,
     )
 
@@ -117,12 +118,7 @@ def finetune_curr_dataset(config, dataset_name: str = None,
     trainer.add_callback(metrics_callback)
     print("initializing training...")
     trainer.train()
-    ###
-    if "test" in tokenized_aligned_dataset:
-        print("Evaluating best model on test set...")
-        test_results = trainer.evaluate(eval_dataset=tokenized_aligned_dataset["test"])
-        pd.DataFrame([test_results]).to_csv(f"output/{experiment_name}_test_results.csv", index=False)
-        print("Test results:", test_results)
+
 
     # 7. Get the training results and hyperparameters
     train_history_df = pd.DataFrame(metrics_callback.training_history["train"])
@@ -132,11 +128,15 @@ def finetune_curr_dataset(config, dataset_name: str = None,
 
     args_df = pd.DataFrame([training_args.to_dict()])
 
+    if "test" in tokenized_aligned_dataset:
+        print("Evaluating on test set...")
+        test_results = trainer.evaluate(eval_dataset=tokenized_aligned_dataset["test"])
+        test_results_df = pd.DataFrame([test_results])
     # 8. Cleanup (optional)
     if do_cleanup:
         cleanup(things_to_delete=[trainer, hf_model, hf_tokenizer, tokenized_aligned_dataset])
 
-    return train_res_df, args_df, hf_model, hf_tokenizer
+    return train_res_df, args_df, test_results_df, hf_model, hf_tokenizer
 
 def get_experiment_name(config, ds_name):
     # Define the experiment name based on the dataset and model
@@ -148,23 +148,27 @@ def do_train(config):
         
         # Call the finetuning function
         print(f"Finetuning {experiment_name}...")
-        train_res_df, args_df, hf_model, hf_tokenizer = finetune_curr_dataset(config, dataset, experiment_name)
+        train_res_df, args_df, test_results_df, hf_model, hf_tokenizer = finetune_curr_dataset(config, dataset, experiment_name)
         print(f"Training results for {experiment_name}:")
         print(train_res_df.head())
         print(f"Training arguments for {experiment_name}:")
         print(args_df.head())
 
-        # Save the model and tokenizer
+        ########## RESULTS ##########
+        # generate paths for saving
         model_save_path = f"output/{experiment_name}_model"
         tokenizer_save_path = f"output/{experiment_name}_tokenizer"
         train_res_df_save_path = f"output/{experiment_name}_training_results.csv"
         args_dfs_save_path = f"output/{experiment_name}_training_args.csv"
         os.makedirs(model_save_path, exist_ok=True)
-        #os.makedirs(tokenizer_save_path, exist_ok=True)
+        os.makedirs(tokenizer_save_path, exist_ok=True)
         #hf_model.save_pretrained(model_save_path)
         #hf_tokenizer.save_pretrained(tokenizer_save_path)
         train_res_df.to_csv(train_res_df_save_path, index=False)
         args_df.to_csv(args_dfs_save_path, index=False)
+        if test_results_df is not None:
+            test_results_path = f"output/{experiment_name}_test_results.csv"
+            tesat_results_df.to_csv(test_results_path, index=False)
 
 def run_experiments(config_dir):
     for f in os.listdir("configs/"):

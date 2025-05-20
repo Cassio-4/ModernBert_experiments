@@ -1,6 +1,6 @@
 services:
   ubuntu-torch-service:
-    image: ubuntu-torch-cassio
+    image: torch-cassio-cudnn
     volumes: 
       - /home/cassio/ner_finetune/ModernBert_experiments:/home/ubuntu/dev
     tty: true
