@@ -6,6 +6,8 @@ services:
     tty: true
     stdin_open: true 
     network_mode: "host"
+    environment:
+      - CUDA_VISIBLE_DEVICES=1
     deploy:
         resources:
           reservations:
