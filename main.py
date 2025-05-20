@@ -117,6 +117,12 @@ def finetune_curr_dataset(config, dataset_name: str = None,
     trainer.add_callback(metrics_callback)
     print("initializing training...")
     trainer.train()
+    ###
+    if "test" in tokenized_aligned_dataset:
+        print("Evaluating best model on test set...")
+        test_results = trainer.evaluate(eval_dataset=tokenized_aligned_dataset["test"])
+        pd.DataFrame([test_results]).to_csv(f"output/{experiment_name}_test_results.csv", index=False)
+        print("Test results:", test_results)
 
     # 7. Get the training results and hyperparameters
     train_history_df = pd.DataFrame(metrics_callback.training_history["train"])
