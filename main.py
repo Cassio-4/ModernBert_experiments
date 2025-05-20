@@ -3,6 +3,7 @@ import os
 import json
 import torch
 torch.set_float32_matmul_precision('high')
+import argparse
 import evaluate
 import numpy as np
 import pandas as pd
@@ -170,13 +171,34 @@ def do_train(config):
             test_results_path = f"output/{experiment_name}_test_results.csv"
             tesat_results_df.to_csv(test_results_path, index=False)
 
-def run_experiments(config_dir):
-    for f in os.listdir("configs/"):
-        if f.endswith(".json"):
-            with open(os.path.join("configs/", f), 'r') as file:
+def run_experiments(configs_paths_lst: list):
+    for config_path in configs_paths_lst:
+            with open(config_path, 'r') as file:
                 config = json.load(file)
             do_train(config)
 
 if __name__ == "__main__":
-    run_experiments("configs/")
+    # Run specific config file if user specifies it
+    parser = argparse.ArgumentParser(description="Run NER fine-tuning experiments.")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Specify a config file in the configs/ directory (e.g., bert_base_uncased_config.json). If not set, runs all configs."
+    )
+    args = parser.parse_args()
+    config_files_lst = []
+    # If config file specified mount path and send it to run_experiments
+    if args.config:
+        print(f"Running config file: {args.config}")
+        config_files_lst = [os.path.join("configs/", args.config)]
+    # If not specified, mount all config files' paths and send em all to run_experiments
+    else:
+        print("Running all config files in configs/ directory.")
+        for f in os.listdir("configs/"):
+            if f.endswith(".json"):
+                config_files_lst.append(os.path.join("configs/", f))
+    
+    print(f"configs to run: {config_files_lst}")
+    run_experiments(config_files_lst)
     
