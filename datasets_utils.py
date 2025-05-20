@@ -1,5 +1,6 @@
 from datasets import load_dataset
 
+#, "bc5cdr", "conll2003", "ncbi", "ontonotes"
 datasets_dict = {
      "lener": {
         "download_reference": "peluz/lener_br",
@@ -65,8 +66,8 @@ def get_label_maps(raw_datasets, train_ds_name):
 
 
 #https://huggingface.co/docs/transformers/main/en/tasks/token_classification
-def tokenize_and_align_labels(examples, tokenizer):
-    tokenized_inputs = tokenizer(examples["tokens"], truncation=True, is_split_into_words=True)
+def tokenize_and_align_labels(examples, tokenizer, max_seq_length):
+    tokenized_inputs = tokenizer(examples["tokens"], truncation=True, is_split_into_words=True, max_length=max_seq_length)
     #print(f'TOKENIZED_INPUTS: {tokenized_inputs}')
     tokens = tokenizer.convert_ids_to_tokens(tokenized_inputs["input_ids"][0])
     #print(f'TOKENS: {tokens}')
@@ -95,17 +96,17 @@ def tokenize_and_align_labels(examples, tokenizer):
     #print(f'TOKENIZED_INPUTS["labels"]: {tokenized_inputs["labels"]}')
     return tokenized_inputs
 
-def load_and_preprocess_dataset(ds_info_dict: dict, tokenizer=None):
+def load_and_preprocess_dataset(ds_info_dict: dict, tokenizer=None, config=None):
     # Load raw dataset
     raw_ds = load_dataset(ds_info_dict['download_reference'], trust_remote_code=True)
     # Get id2label and label2id
-    if "bc5cdr" in ds_info_dict["download_reference"]:
+    if any(d in ds_info_dict["download_reference"] for d in ("bc5cdr", "conll2003", "ontonotes")):
         labels_list = ds_info_dict['labels']
         id2label, label2id =  ds_info_dict['id2label'], ds_info_dict['label2id']
     else: 
         labels_list = raw_ds["train"].features["ner_tags"].feature.names
         id2label, label2id = get_label_maps(raw_ds, ds_info_dict["dataset_names"]["train"])
     # Tokenize and align labels
-    tokenized_aligned_dataset = raw_ds.map(tokenize_and_align_labels, batched=True, fn_kwargs={"tokenizer": tokenizer})
+    tokenized_aligned_dataset = raw_ds.map(tokenize_and_align_labels, batched=True, fn_kwargs={"tokenizer": tokenizer, "max_seq_length": config["max_seq_length"]})
     
     return tokenized_aligned_dataset, labels_list, id2label, label2id

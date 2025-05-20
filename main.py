@@ -15,7 +15,7 @@ from transformers import (
     TrainerCallback
 )
 
-#seqeval = evaluate.load("seqeval")
+seqeval = evaluate.load("seqeval")
 
 class MetricsCallback(TrainerCallback):
     def __init__(self):
@@ -63,12 +63,15 @@ def cleanup(things_to_delete: list | None = None):
 def finetune_curr_dataset(config, dataset_name: str = None,
                           experiment_name: str = None, do_cleanup: bool = True):
     # 1. Get tokenizer
-    hf_tokenizer = AutoTokenizer.from_pretrained(config["model_checkpoint"])
+    if config["model_checkpoint"] == "FacebookAI/roberta-base":
+        hf_tokenizer = AutoTokenizer.from_pretrained(config["model_checkpoint"], add_prefix_space=True)
+    else:
+        hf_tokenizer = AutoTokenizer.from_pretrained(config["model_checkpoint"])
     # 2. Get the dataset
     # 2.1 Get the dataset info
     ds_info_dict, train_ds_name, valid_ds_name, n_labels = unpack_dataset_info(dataset_name)
     # 2.2 Load and preprocess the dataset
-    tokenized_aligned_dataset, labels_list, id2label, label2id = load_and_preprocess_dataset(ds_info_dict, hf_tokenizer)
+    tokenized_aligned_dataset, labels_list, id2label, label2id = load_and_preprocess_dataset(ds_info_dict, hf_tokenizer, config)
     # 3. Define the compute metrics function
     #task_compute_metrics = partial(compute_metrics, task_metrics=task_metrics)
     # 4. Load the model and data collator
@@ -89,8 +92,11 @@ def finetune_curr_dataset(config, dataset_name: str = None,
         adam_epsilon=config['adam_epsilon'],
         logging_strategy="epoch",
         eval_strategy="epoch",
-        save_strategy="best",
+        save_strategy="epoch",
+        save_total_limit=1,
         load_best_model_at_end=True,
+        metric_for_best_model="eval_f1",
+        greater_is_better=True,
         bf16=True,
         bf16_full_eval=True,
         push_to_hub=False,
@@ -143,14 +149,14 @@ def do_train(config):
         print(args_df.head())
 
         # Save the model and tokenizer
-        model_save_path = f"models/{experiment_name}_model"
-        tokenizer_save_path = f"models/{experiment_name}_tokenizer"
-        train_res_df_save_path = f"models/{experiment_name}_training_results.csv"
-        args_dfs_save_path = f"models/{experiment_name}_training_args.csv"
+        model_save_path = f"output/{experiment_name}_model"
+        tokenizer_save_path = f"output/{experiment_name}_tokenizer"
+        train_res_df_save_path = f"output/{experiment_name}_training_results.csv"
+        args_dfs_save_path = f"output/{experiment_name}_training_args.csv"
         os.makedirs(model_save_path, exist_ok=True)
-        os.makedirs(tokenizer_save_path, exist_ok=True)
-        hf_model.save_pretrained(model_save_path)
-        hf_tokenizer.save_pretrained(tokenizer_save_path)
+        #os.makedirs(tokenizer_save_path, exist_ok=True)
+        #hf_model.save_pretrained(model_save_path)
+        #hf_tokenizer.save_pretrained(tokenizer_save_path)
         train_res_df.to_csv(train_res_df_save_path, index=False)
         args_df.to_csv(args_dfs_save_path, index=False)
 

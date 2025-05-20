@@ -1,7 +1,7 @@
 # CUDA 12.8.
-FROM nvcr.io/nvidia/pytorch:25.04-py3
+#FROM nvcr.io/nvidia/pytorch:25.04-py3
 
-RUN pip install evaluate transformers[torch] datasets sentence-transformers
+#RUN pip install evaluate transformers[torch] datasets sentence-transformers
 # Instale dependências necessárias, incluindo g++ e gcc
 #RUN apt-get update && apt-get install -y \
 #    build-essential \
@@ -32,3 +32,11 @@ RUN pip install evaluate transformers[torch] datasets sentence-transformers
 
 # Comando padrão para executar o container
 #CMD ["/bin/bash", "-l"]
+#########################
+FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime
+RUN apt-get update && \
+      apt-get -y install sudo
+RUN pip install ninja evaluate transformers[torch] datasets sentence-transformers tiktoken protobuf sentencepiece
+RUN useradd -rm -d /home/ubuntu -s /bin/bash -g root -G sudo -u 1010 ubuntu
+USER ubuntu
+WORKDIR /home/ubuntu
