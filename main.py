@@ -169,7 +169,7 @@ def do_train(config):
         args_df.to_csv(args_dfs_save_path, index=False)
         if test_results_df is not None:
             test_results_path = f"output/{experiment_name}_test_results.csv"
-            tesat_results_df.to_csv(test_results_path, index=False)
+            test_results_df.to_csv(test_results_path, index=False)
 
 def run_experiments(configs_paths_lst: list):
     for config_path in configs_paths_lst:
@@ -188,7 +188,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     config_files_lst = []
-    # If config file specified mount path and send it to run_experiments
+    # If config file specified, mount path and send it to run_experiments
     if args.config:
         print(f"Running config file: {args.config}")
         config_files_lst = [os.path.join("configs/", args.config)]
