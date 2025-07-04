@@ -1,7 +1,7 @@
 {
   "datasets": ["lener"],
   "model_checkpoint": "answerdotai/ModernBERT-base",
-  "learning_rate": 8e-5,
+  "learning_rate": 5e-5,
   "max_seq_length": 8192,
   "batch_size": 32,
   "num_epochs": 10,

@@ -1,4 +1,5 @@
 from datasets import load_dataset
+from torch.utils.data import DataLoader
 
 #, "bc5cdr", "conll2003", "ncbi", "ontonotes"
 datasets_dict = {
@@ -110,3 +111,20 @@ def load_and_preprocess_dataset(ds_info_dict: dict, tokenizer=None, config=None)
     tokenized_aligned_dataset = raw_ds.map(tokenize_and_align_labels, batched=True, fn_kwargs={"tokenizer": tokenizer, "max_seq_length": config["max_seq_length"]})
     
     return tokenized_aligned_dataset, labels_list, id2label, label2id
+
+def get_dataloaders(tokenized_aligned_dataset, config, splits=[] collate_fn=None):
+    # Convert to PyTorch format
+    torch_ds = tokenized_aligned_dataset.with_format("torch")
+    train_dataset = torch_ds['train']#.select(range(160))
+    eval_dataset = torch_ds['validation']#.select(range(160))
+    test_dataset = torch_ds['test']#.select(range(160))
+    # Create DataLoaders
+    bs = config["batch_size"]
+    train_loader, val_loader, test_loader = None, None, None
+    if "train" in splits:
+        train_loader = DataLoader(train_dataset, batch_size=bs, collate_fn=collate_fn)
+    if "val" in splits:
+        val_loader = DataLoader(eval_dataset, batch_size=bs,collate_fn=collate_fn)
+    if "test" in splits:
+        test_loader = DataLoader(test_dataset, batch_size=bs, collate_fn=collate_fn)
+    return train_loader, val_loader, test_loader
