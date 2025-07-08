@@ -12,65 +12,24 @@ Original file is located at
 !apt install libomp-dev
 !pip install faiss-cpu
 """
-import torch
-import torch.optim as optim
+import argparse, os, json
 import pandas as pd
 import numpy as np
-from transformers import AutoTokenizer, AutoModel, DataCollatorForTokenClassification
-from datasets import load_dataset, get_dataloaders
+import torch
+import torch.optim as optim
+from transformers import AutoTokenizer, AutoModel
+from datasets import load_dataset
 from pytorch_metric_learning import distances, losses, miners, reducers, testers
 from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
-from datasets_utils import load_and_preprocess_dataset, unpack_dataset_info
+from datasets_utils import load_and_preprocess_dataset, unpack_dataset_info, get_dataloaders, SplitInstanceCollate
 from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import f1_score
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using device:", device)
-
-def tokenize_and_align_labels(examples):
-    tokenized_inputs = hf_tokenizer(examples["tokens"], truncation=True, padding='longest',
-                                    is_split_into_words=True)
-
-    labels = []
-    for i, label in enumerate(examples[f"{task}_tags"]):
-        word_ids = tokenized_inputs.word_ids(batch_index=i)
-        previous_word_idx = None
-        label_ids = []
-        for word_idx in word_ids:
-            # Special tokens have a word id that is None. We set the label to -100 so they are automatically
-            # ignored in the loss function.
-            if word_idx is None:
-                label_ids.append(-100)
-            # We set the label for the first token of each word.
-            elif word_idx != previous_word_idx:
-                label_ids.append(label[word_idx])
-            # For the other tokens in a word, we set the label to either the current label or -100, depending on
-            # the label_all_tokens flag.
-            else:
-                label_ids.append(label[word_idx] if label_all_tokens else -100)
-            previous_word_idx = word_idx
-
-        labels.append(label_ids)
-
-    tokenized_inputs["labels"] = labels
-    return tokenized_inputs
-
-def collate_fn(batch):
-    # Separate inputs and labels
-    input_ids = [item["input_ids"] for item in batch]
-    #print("input_ids.shape:", input_ids.shape)
-    attention_mask = [item["attention_mask"] for item in batch]
-    #print("attention_mask.shape:", attention_mask)
-    labels = [item["labels"] for item in batch]
-    #print("labels:", labels.shape)
-
-    # Pad sequences to the longest in the batch
-    padded_inputs = hf_tokenizer.pad(
-        {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels},
-        padding="longest", return_tensors="pt"
-    )
-
-    return padded_inputs
+hf_tokenizer = AutoTokenizer.from_pretrained("microsoft/deberta-v3-base")
+print("hf_tokenizer: ", hf_tokenizer)
+print("hf_tokenizer.model_max_length:", hf_tokenizer.model_max_length)
 
 def reshape_embeddings_and_labels(embeddings, labels):
     # Make labels 1D
@@ -90,115 +49,117 @@ def reshape_embeddings_and_labels(embeddings, labels):
     """
     return emb_reshaped_masked, labels_masked
 
-
-def forward_one_epoch(model, train_loader, optimizer, loss_func, mining_func, device):
-    model.train()
+def forward_one_epoch(model, train_loader, optimizer, loss_func, mining_func, train=True):
+    if train:
+        model.train()
+    else:
+        model.eval()
     total_loss = 0.0
     num_batches = 0
-    for batch_idx, data in enumerate(train_loader):
-        input_ids = data['input_ids'].to(device)
-        attention_mask = data['attention_mask'].to(device)
-        labels = data['labels'].to(device)
-        optimizer.zero_grad()
-        embeddings = hf_model(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
-        emb_masked, labels_masked = reshape_embeddings_and_labels(embeddings, labels)
-        indices_tuple = mining_func(emb_masked, labels_masked)
-        loss = loss_func(emb_masked, labels_masked, indices_tuple)
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-        num_batches += 1
-        if batch_idx % PRINT_FREQ == 0:
-            print(
-                "Epoch {} Iteration {}: curr_mean_loss = {}, Number of mined triplets = {}".format(
-                    epoch, batch_idx, total_loss / num_batches, mining_func.num_triplets
-                )
-            )
+    with torch.set_grad_enabled(train):
+        for batch_idx, (data, instance_ids) in enumerate(train_loader):
+            input_ids = data['input_ids'].to(device)
+            attention_mask = data['attention_mask'].to(device)
+            labels = data['labels'].to(device)
+            if train:
+                #print(f"input_ids.shape: {input_ids.shape}, attention_mask.shape: {attention_mask.shape}, labels.shape: {labels.shape}")
+                #print(f"input_ids: {input_ids}")
+                #print(f"labels: {labels}")
+                #print(f"instance_ids: {instance_ids}")
+                optimizer.zero_grad()
+            embeddings = model(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
+            emb_masked, labels_masked = reshape_embeddings_and_labels(embeddings, labels)
+            indices_tuple = mining_func(emb_masked, labels_masked)
+            loss = loss_func(emb_masked, labels_masked, indices_tuple)
+            if train:
+                loss.backward()
+                optimizer.step()
+            total_loss += loss.item()
+            num_batches += 1
     mean_loss = total_loss / num_batches if num_batches > 0 else 0.0
     return mean_loss
 
 def train(config):
     EPOCHS = config['num_epochs']
     for dataset in config['datasets']:
-        # Tokenizer and Model
-        hf_tokenizer = AutoTokenizer.from_pretrained("microsoft/deberta-v3-base")
-        hf_model = AutoModel.from_pretrained("microsoft/deberta-v3-base")
-        print("hf_model:", hf_model)
+        # Model
+        model = AutoModel.from_pretrained("microsoft/deberta-v3-base")
+        print("hf_model:", model)
         # Load and preprocess the dataset
-        ds_info_dict, train_ds_name, valid_ds_name, n_labels = unpack_dataset_info(dataset_name)
+        collate_fn = SplitInstanceCollate(hf_tokenizer, max_length=config["max_seq_length"], overlap=config["overlap"])
+        ds_info_dict, train_ds_name, valid_ds_name, n_labels = unpack_dataset_info(dataset)
         tokenized_aligned_dataset, labels_list, id2label, label2id = load_and_preprocess_dataset(ds_info_dict, hf_tokenizer, config)
-        train_loader, val_loader = get_dataloaders(tokenized_aligned_dataset, config, 
-                                                    ["train", "val"], collate_fn=collate_fn)
+        train_loader, val_loader, _ = get_dataloaders(tokenized_aligned_dataset, config, ["train", "val"], 
+                                    collate_fn=collate_fn, select=config.get("select", -1))
     
-        hf_model = hf_model.to(device)
-        optimizer = optim.Adam(model.parameters(), lr=LR)
+        model = model.to(device)
+        optimizer = optim.Adam(model.parameters(), lr=config['learning_rate'])
 
         ### pytorch-metric-learning stuff ###
         distance = distances.CosineSimilarity()
         reducer = reducers.ThresholdReducer(low=0)
-        loss_func = losses.TripletMarginLoss(margin=0.2, distance=distance, reducer=reducer)
         mining_func = miners.TripletMarginMiner(margin=0.2, distance=distance,
                                                 type_of_triplets="semihard")
+        loss_func = losses.TripletMarginLoss(margin=0.2, distance=distance, reducer=reducer)
         accuracy_calculator = AccuracyCalculator(include=("precision_at_1",), k=1)
     
         print("Starting training...")
-        train_loss, eval_loss, eval_prec = [], [], []
-        best_prec = 0.0
+        train_loss, val_loss, val_prec = [], [], []
+        best_val_loss = float('inf')
         patience_counter = 0
 
         for epoch in range(1, EPOCHS + 1):
-            epoch_avg_loss = forward_one_epoch(model, loss_func, mining_func, device, 
-                            train_loader, optimizer, epoch)
-            
-            prec = test(train_dataset, eval_dataset, model, accuracy_calculator)
-            
+            epoch_avg_loss = forward_one_epoch(model, train_loader, optimizer, loss_func, mining_func)
+            val_avg_loss = forward_one_epoch(model, val_loader, optimizer, loss_func, mining_func, train=False)
+            prec = test(train_loader, val_loader, model, accuracy_calculator)
+            val_loss.append(val_avg_loss)
             train_loss.append(epoch_avg_loss)
-            eval_prec.append(prec)
-            print("Epoch {}: train_loss: {:.4f}, eval_loss: {:.4f}, eval_p_@1: {:.4f} ".format(
-                epoch, train_loss[-1], eval_loss[-1], eval_prec[-1]))
-            if prec > best_prec:
-                best_prec = prec
+            val_prec.append(prec["precision_at_1"])
+            print("Epoch {}: train_loss: {:.4f}, val_loss: {:.4f}, val_p_@1: {:.4f} ".format(
+                epoch, train_loss[-1], val_loss[-1], val_prec[-1]))
+            if val_avg_loss < best_val_loss:
+                best_val_loss = val_avg_loss
                 patience_counter = 0
                 torch.save(model.state_dict(), "best_deberta_dml_model.pth")
-                print(f"Saved best model with precision: {best_prec}")
+                print(f"Saved best model with val_loss: {best_val_loss:.4f}")
             else:
                 patience_counter += 1
                 if patience_counter >= PATIENCE:
                     print(f"Early stopping at epoch {epoch}, no improvement in {PATIENCE} epochs.")
                     break
-        test_prec = test(train_dataset, test_dataset, model, accuracy_calculator)
+        _, _, test_loader = get_dataloaders(tokenized_aligned_dataset, config, ["test"], 
+                                    collate_fn=collate_fn, select=config.get("select", -1))
+        test_prec = test(train_loader, test_loader, model, accuracy_calculator)
 
         print(f"Final test precision: {test_prec}")
         results_df = pd.DataFrame({
-            "epoch": list(range(1, len(loss_train) + 1)),
+            "epoch": list(range(1, len(train_loss) + 1)),
             "train_loss": train_loss,
-            "eval_precision_at_1": eval_prec
+            "val_precision_at_1": val_prec
         })
         results_df.to_csv("training_results.csv", index=False)
 
-def get_all_embeddings(dataset, model):
-    loader = torch.utils.data.DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=collate_fn)
+def get_all_embeddings(loader: torch.utils.data.DataLoader, model):
     embeddings_lst = []
     labels_lst = []
     model.eval()
     with torch.no_grad():
-        for batch_idx, data in enumerate(loader):
+        for batch_idx, (data, instance_id) in enumerate(loader):
             input_ids = data['input_ids'].to(device)
             attention_mask = data['attention_mask'].to(device)
             labels = data['labels'].to(device)
-            embeddings = hf_model(input_ids=input_ids, 
-                                    attention_mask=attention_mask).last_hidden_state
+            embeddings = model(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
             emb_masked, labels_masked = reshape_embeddings_and_labels(embeddings, labels)
             embeddings_lst.append(emb_masked)
             labels_lst.append(labels_masked)
     stacked_embeddings = torch.cat(embeddings_lst)
     stacked_labels = torch.cat(labels_lst)
     return stacked_embeddings, stacked_labels
+
 ### compute accuracy using AccuracyCalculator from pytorch-metric-learning ###
-def test(train_set, test_set, model, accuracy_calculator):
-    train_embeddings, train_labels = get_all_embeddings(train_set, model)
-    test_embeddings, test_labels = get_all_embeddings(test_set, model)
-    print("embeddings extracted, calculating accuracy...")
+def test(train_loader, test_loader, model, accuracy_calculator):
+    train_embeddings, train_labels = get_all_embeddings(train_loader, model)
+    test_embeddings, test_labels = get_all_embeddings(test_loader, model)
     accuracies = accuracy_calculator.get_accuracy(
         test_embeddings, test_labels, train_embeddings, train_labels, False
     )
@@ -236,7 +197,7 @@ if __name__ == "__main__":
         print("Running all config files in configs/ directory.")
         for f in os.listdir("dml/configs/"):
             if f.endswith(".json"):
-                config_files_lst.append(os.path.join("configs/", f))
+                config_files_lst.append(os.path.join("dml/configs/", f))
     
     print(f"configs to run: {config_files_lst}")
     run_experiments(config_files_lst)

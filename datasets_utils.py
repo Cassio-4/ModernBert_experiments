@@ -1,5 +1,6 @@
 from datasets import load_dataset
 from torch.utils.data import DataLoader
+from transformers import DataCollatorForTokenClassification
 
 #, "bc5cdr", "conll2003", "ncbi", "ontonotes"
 datasets_dict = {
@@ -65,10 +66,9 @@ def get_label_maps(raw_datasets, train_ds_name):
 
     return id2label, label2id
 
-
 #https://huggingface.co/docs/transformers/main/en/tasks/token_classification
 def tokenize_and_align_labels(examples, tokenizer, max_seq_length):
-    tokenized_inputs = tokenizer(examples["tokens"], truncation=True, is_split_into_words=True, max_length=max_seq_length)
+    tokenized_inputs = tokenizer(examples["tokens"], is_split_into_words=True)
     #print(f'TOKENIZED_INPUTS: {tokenized_inputs}')
     tokens = tokenizer.convert_ids_to_tokens(tokenized_inputs["input_ids"][0])
     #print(f'TOKENS: {tokens}')
@@ -112,12 +112,20 @@ def load_and_preprocess_dataset(ds_info_dict: dict, tokenizer=None, config=None)
     
     return tokenized_aligned_dataset, labels_list, id2label, label2id
 
-def get_dataloaders(tokenized_aligned_dataset, config, splits=[] collate_fn=None):
+def get_dataloaders(tokenized_aligned_dataset, config, splits=[], collate_fn=None, select=None):
     # Convert to PyTorch format
     torch_ds = tokenized_aligned_dataset.with_format("torch")
-    train_dataset = torch_ds['train']#.select(range(160))
-    eval_dataset = torch_ds['validation']#.select(range(160))
-    test_dataset = torch_ds['test']#.select(range(160))
+    if select is None or (select == -1):
+        print("No selection limit applied, using full dataset.")
+        train_dataset = torch_ds['train']
+        eval_dataset = torch_ds['validation']
+        test_dataset = torch_ds['test']
+    else:
+        print(f"Selection limit applied, loading {select} instances of data per split.")
+        train_dataset = torch_ds['train'].select(range(select))
+        eval_dataset = torch_ds['validation'].select(range(select))
+        test_dataset = torch_ds['test'].select(range(select))
+
     # Create DataLoaders
     bs = config["batch_size"]
     train_loader, val_loader, test_loader = None, None, None
@@ -128,3 +136,53 @@ def get_dataloaders(tokenized_aligned_dataset, config, splits=[] collate_fn=None
     if "test" in splits:
         test_loader = DataLoader(test_dataset, batch_size=bs, collate_fn=collate_fn)
     return train_loader, val_loader, test_loader
+
+class SplitInstanceCollate:
+    def __init__(self, tokenizer, max_length=512, overlap=128):
+        self.data_collator = DataCollatorForTokenClassification(tokenizer, padding="longest")
+        self.max_length = max_length
+        self.overlap = overlap
+
+    def __call__(self, batch):
+        new_input_ids = []
+        new_attention_mask = []
+        new_labels = []
+        instance_ids = []
+
+        for idx, item in enumerate(batch):
+            input_ids = item["input_ids"]
+            attention_mask = item["attention_mask"]
+            labels = item["labels"]
+            # Get length of current input_ids
+            seq_len = len(input_ids)
+            # Check if current instance is longer than the max allowed
+            if seq_len <= self.max_length:
+                new_input_ids.append(input_ids)
+                new_attention_mask.append(attention_mask)
+                new_labels.append(labels)
+                instance_ids.append(idx)
+            else:
+                start = 0
+                while start < seq_len:
+                    end = min(start + self.max_length, seq_len)
+                    chunk_input_ids = input_ids[start:end]
+                    chunk_attention_mask = attention_mask[start:end]
+                    chunk_labels = labels[start:end]
+                    # Append the new chunk to the lists
+                    new_input_ids.append(chunk_input_ids)
+                    new_attention_mask.append(chunk_attention_mask)
+                    new_labels.append(chunk_labels)
+                    start += self.max_length - self.overlap
+                    instance_ids.append(idx)
+        # TODO create assert to verify if chunking is correct
+        # Pad sequences to the longest in the batch
+        features = []
+        for i in range(len(new_input_ids)):
+            features.append({
+                "input_ids": new_input_ids[i],
+                "attention_mask": new_attention_mask[i],
+                "labels": new_labels[i]
+            })
+        padded_inputs = self.data_collator(features)
+
+        return padded_inputs, instance_ids
