@@ -1,5 +1,6 @@
 from datasets import load_dataset
 from torch.utils.data import DataLoader
+import torch
 from transformers import DataCollatorForTokenClassification
 
 #, "bc5cdr", "conll2003", "ncbi", "ontonotes"
@@ -98,8 +99,23 @@ def tokenize_and_align_labels(examples, tokenizer, max_seq_length):
     return tokenized_inputs
 
 def load_and_preprocess_dataset(ds_info_dict: dict, tokenizer=None, config=None):
+    """
+    Loads a Hugging Face dataset, retrieves label mappings, and tokenizes the data with aligned labels.
+
+    Args:
+        ds_info_dict (dict): Dictionary containing dataset metadata, including download reference and label info.
+        tokenizer (transformers.PreTrainedTokenizer): Tokenizer to use for tokenization.
+        config (dict): Configuration dictionary, must include 'max_seq_length' for tokenization.
+
+    Returns:
+        tokenized_aligned_dataset (datasets.DatasetDict): Tokenized dataset with aligned labels for NER.
+        labels_list (list): List of label names.
+        id2label (dict): Mapping from label IDs to label names.
+        label2id (dict): Mapping from label names to label IDs.
+    """
     # Load raw dataset
     raw_ds = load_dataset(ds_info_dict['download_reference'], trust_remote_code=True)
+    print(raw_ds)
     # Get id2label and label2id
     if any(d in ds_info_dict["download_reference"] for d in ("bc5cdr", "conll2003", "ontonotes")):
         labels_list = ds_info_dict['labels']
@@ -109,7 +125,7 @@ def load_and_preprocess_dataset(ds_info_dict: dict, tokenizer=None, config=None)
         id2label, label2id = get_label_maps(raw_ds, ds_info_dict["dataset_names"]["train"])
     # Tokenize and align labels
     tokenized_aligned_dataset = raw_ds.map(tokenize_and_align_labels, batched=True, fn_kwargs={"tokenizer": tokenizer, "max_seq_length": config["max_seq_length"]})
-    
+    print(tokenized_aligned_dataset)
     return tokenized_aligned_dataset, labels_list, id2label, label2id
 
 def get_dataloaders(tokenized_aligned_dataset, config, splits=[], collate_fn=None, select=None):
@@ -139,9 +155,48 @@ def get_dataloaders(tokenized_aligned_dataset, config, splits=[], collate_fn=Non
 
 class SplitInstanceCollate:
     def __init__(self, tokenizer, max_length=512, overlap=128):
+        self.tokenizer = tokenizer
         self.data_collator = DataCollatorForTokenClassification(tokenizer, padding="longest")
         self.max_length = max_length
+        if overlap >= max_length:
+            raise ValueError(f"Overlap ({overlap}) must be less than max_length ({max_length}).")
         self.overlap = overlap
+    
+    def calc_special_tokens_offset(self, input_ids: torch.tensor, att_mask, labels) -> int:
+        special_tokens_offset = 0
+        diff = 0
+        add_cls, add_sep = False, False
+        seq_len = len(input_ids)
+        # If current chunk doesn't start with [CLS]
+        if input_ids[0] != self.tokenizer.cls_token_id:
+            add_cls = True
+            special_tokens_offset += 1
+        # If current chunk doesn't end with [SEP]
+        if input_ids[-1] != self.tokenizer.sep_token_id:
+            add_sep = True
+            special_tokens_offset += 1
+        # If adding special tokens surpasses max sequence length
+        if len(input_ids) + special_tokens_offset > self.max_length:
+            diff = len(input_ids) + special_tokens_offset - self.max_length
+        assert 0 <= diff <= 2, f"impossible for diff: {diff} to be lower than 0 or larger than 2" 
+        # Throw away last diff tokens, next chunk will take them they dont fit here
+        input_ids = input_ids[:seq_len - diff]
+        att_mask = att_mask[:seq_len - diff]
+        labels = labels[:seq_len - diff]
+        if add_cls:
+            cls_tensor = torch.tensor([self.tokenizer.cls_token_id])
+            input_ids = torch.cat((cls_tensor, input_ids))
+            att_mask = torch.cat((torch.tensor([1]), att_mask))
+            labels = torch.cat((torch.tensor([-100]), labels))
+        if add_sep:
+            sep_tensor = torch.tensor([self.tokenizer.sep_token_id])
+            input_ids = torch.cat((input_ids, sep_tensor))
+            att_mask = torch.cat((att_mask, torch.tensor([1])))
+            labels = torch.cat((labels, torch.tensor([-100])))
+
+        assert len(input_ids) == len(att_mask) == len(labels), "Input IDs, attention mask, and labels must have the same length."
+        assert len(input_ids) <= self.max_length, "Input IDs length exceeds max_length."
+        return (input_ids, att_mask, labels), diff
 
     def __call__(self, batch):
         new_input_ids = []
@@ -155,6 +210,8 @@ class SplitInstanceCollate:
             labels = item["labels"]
             # Get length of current input_ids
             seq_len = len(input_ids)
+            tokens = self.tokenizer.convert_ids_to_tokens(input_ids)
+            #print(f"instance({idx}), seq_len: {seq_len}, tokens: {tokens}")
             # Check if current instance is longer than the max allowed
             if seq_len <= self.max_length:
                 new_input_ids.append(input_ids)
@@ -163,17 +220,25 @@ class SplitInstanceCollate:
                 instance_ids.append(idx)
             else:
                 start = 0
-                while start < seq_len:
+                end = 0
+                while end < seq_len:
                     end = min(start + self.max_length, seq_len)
-                    chunk_input_ids = input_ids[start:end]
-                    chunk_attention_mask = attention_mask[start:end]
-                    chunk_labels = labels[start:end]
+                    #print(f"start: {start}, end: {end}, max_length: {self.max_length}")
+                    chunked_tup, special_offset = self.calc_special_tokens_offset(
+                                                input_ids[start:end], 
+                                                attention_mask[start:end], 
+                                                labels[start:end]
+                                            )
+                    chunk_input_ids, chunk_attention_mask, chunk_labels = chunked_tup 
                     # Append the new chunk to the lists
                     new_input_ids.append(chunk_input_ids)
                     new_attention_mask.append(chunk_attention_mask)
                     new_labels.append(chunk_labels)
-                    start += self.max_length - self.overlap
-                    instance_ids.append(idx)
+                    start += self.max_length - self.overlap - special_offset
+                    instance_ids.append(idx)    
+                    tokens = self.tokenizer.convert_ids_to_tokens(chunk_input_ids)
+                    #print(f"Chunked instance({idx}), tokens: {tokens}")
+                    
         # TODO create assert to verify if chunking is correct
         # Pad sequences to the longest in the batch
         features = []
@@ -183,6 +248,7 @@ class SplitInstanceCollate:
                 "attention_mask": new_attention_mask[i],
                 "labels": new_labels[i]
             })
+        #print(f"Features: {features}")
         padded_inputs = self.data_collator(features)
-
+        #print(f"Padded Inputs: {padded_inputs}")
         return padded_inputs, instance_ids
