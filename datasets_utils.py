@@ -70,18 +70,13 @@ def get_label_maps(raw_datasets, train_ds_name):
 #https://huggingface.co/docs/transformers/main/en/tasks/token_classification
 def tokenize_and_align_labels(examples, tokenizer, max_seq_length):
     tokenized_inputs = tokenizer(examples["tokens"], is_split_into_words=True)
-    #print(f'TOKENIZED_INPUTS: {tokenized_inputs}')
-    tokens = tokenizer.convert_ids_to_tokens(tokenized_inputs["input_ids"][0])
-    #print(f'TOKENS: {tokens}')
     labels = []
     if "ner_tags" in examples:
         ner_tags = "ner_tags"
     else:
         ner_tags = "tags"
     for i, label in enumerate(examples[f"{ner_tags}"]):
-        #print(f'I: {i}; LABEL: {label}')
         word_ids = tokenized_inputs.word_ids(batch_index=i)  # Map tokens to their respective word.
-        #print(f'WORD_IDS: {word_ids}')
         previous_word_idx = None
         label_ids = []
         for word_idx in word_ids:  # Set the special tokens to -100.
@@ -95,7 +90,6 @@ def tokenize_and_align_labels(examples, tokenizer, max_seq_length):
         labels.append(label_ids)
 
     tokenized_inputs["labels"] = labels
-    #print(f'TOKENIZED_INPUTS["labels"]: {tokenized_inputs["labels"]}')
     return tokenized_inputs
 
 def load_and_preprocess_dataset(ds_info_dict: dict, tokenizer=None, config=None):
@@ -115,7 +109,6 @@ def load_and_preprocess_dataset(ds_info_dict: dict, tokenizer=None, config=None)
     """
     # Load raw dataset
     raw_ds = load_dataset(ds_info_dict['download_reference'], trust_remote_code=True)
-    print(raw_ds)
     # Get id2label and label2id
     if any(d in ds_info_dict["download_reference"] for d in ("bc5cdr", "conll2003", "ontonotes")):
         labels_list = ds_info_dict['labels']
@@ -125,7 +118,8 @@ def load_and_preprocess_dataset(ds_info_dict: dict, tokenizer=None, config=None)
         id2label, label2id = get_label_maps(raw_ds, ds_info_dict["dataset_names"]["train"])
     # Tokenize and align labels
     tokenized_aligned_dataset = raw_ds.map(tokenize_and_align_labels, batched=True, fn_kwargs={"tokenizer": tokenizer, "max_seq_length": config["max_seq_length"]})
-    print(tokenized_aligned_dataset)
+    #print(tokenized_aligned_dataset)
+    #print(tokenized_aligned_dataset["train"]['id'][0])
     return tokenized_aligned_dataset, labels_list, id2label, label2id
 
 def get_dataloaders(tokenized_aligned_dataset, config, splits=[], collate_fn=None, select=None):
@@ -211,7 +205,8 @@ class SplitInstanceCollate:
             # Get length of current input_ids
             seq_len = len(input_ids)
             tokens = self.tokenizer.convert_ids_to_tokens(input_ids)
-            #print(f"instance({idx}), seq_len: {seq_len}, tokens: {tokens}")
+            print(f"instance({idx}), seq_len: {seq_len}, tokens: {tokens}")
+            #print(f"labels: {labels}")
             # Check if current instance is longer than the max allowed
             if seq_len <= self.max_length:
                 new_input_ids.append(input_ids)
@@ -248,7 +243,185 @@ class SplitInstanceCollate:
                 "attention_mask": new_attention_mask[i],
                 "labels": new_labels[i]
             })
-        #print(f"Features: {features}")
         padded_inputs = self.data_collator(features)
-        #print(f"Padded Inputs: {padded_inputs}")
         return padded_inputs, instance_ids
+
+class NerSlidingWindowReconstructor():
+    def __init__(self, tokenizer=None, overlap=-1):
+        if tokenizer is None:
+            raise ValueError(f"A Tokenizer must be provided in order to get current special token's IDs.")
+        self.tokenizer = tokenizer
+        self.cls_id = tokenizer.cls_token_id
+        self.sep_id = tokenizer.sep_token_id
+        if overlap < 0:
+            raise ValueError(f"Invalid Overlap value.")
+        self.overlap = overlap
+        print("Initialized Reconstructor")
+    
+    def reconstruct_sequences(self, model_output, instance_ids, batch_data):
+        """
+        Reconstruct sequences from sliding window outputs.
+        
+        Args:
+            model_output: Tensor outputed by the model [batch_size, num_tokens, emb_dim]
+            instance_ids: list of ids that map each instance within a batch
+            
+        Returns:
+            reconstructed_batch: Dictionary containing reconstructed embeddings, input_ids, and labels.
+        """
+        unique_ids, counts = torch.unique_consecutive(torch.tensor(instance_ids), return_counts=True)
+        # Separate the batch into each instance
+        chunks = torch.split(model_output, counts.tolist())
+        chunks_ids = torch.split(batch_data['input_ids'], counts.tolist())
+        chunks_labels = torch.split(batch_data['labels'], counts.tolist())
+        reconstructed_batch = {"embeddings": [], "input_ids": [], "labels": []}
+        for i in range(len(chunks)):
+            curr_chunk = chunks[i]
+            if len(curr_chunk) > 1: 
+                clean_chunks_emb = self._split_chunks(curr_chunk, chunks_ids[i])
+                clean_ids = self._split_chunks(chunks_ids[i], chunks_ids[i])
+                clean_labels = self._split_chunks(chunks_labels[i], chunks_ids[i])
+                merged_emb = self._merge_chunks_emb_avg(clean_chunks_emb)
+                merged_ids = self._merge_input_data(clean_ids)
+                merged_labels = self._merge_input_data(clean_labels)
+                # self.print_clean_chunks_dict(clean_chunks_emb)
+                # print("=====IDS=====")
+                # self.print_clean_chunks_dict(clean_ids)
+                # print("=====LABELS=====")
+                # self.print_clean_chunks_dict(clean_labels)
+                #_merge_chunks_emb_avg(clean_chunks_emb, clean_ids)
+               
+                reconstructed_batch["embeddings"].append(merged_emb)
+                reconstructed_batch["input_ids"].append(merged_ids)
+                reconstructed_batch["labels"].append(merged_labels)
+            else:
+                reconstructed_batch["embeddings"].append(curr_chunk)
+                reconstructed_batch["input_ids"].append(chunks_ids[i])
+                reconstructed_batch["labels"].append(chunks_labels[i])
+
+        reconstructed_batch["embeddings"] = torch.stack(reconstructed_batch["embeddings"])
+        reconstructed_batch["input_ids"] = torch.stack(reconstructed_batch["input_ids"])
+        reconstructed_batch["labels"] = torch.stack(reconstructed_batch["labels"])
+        return reconstructed_batch
+                
+    def _split_chunks(self, chunks, ids) -> list:
+        """
+        Takes tensor of chunks that belong to the same sentence, split each
+        into a dictionary and return a list of dictionaries for further processing
+        
+        Args:
+            chunks: Tensor of shape [num_chunks, chunk_size, emb_dim]
+            data_batch: Original batch of data coming from dataloader
+        
+        Returns:
+            clean_chunks: List of dictionaries that map each chunk's part
+        """
+        # we'll first separate each chunk in a dictionary that maps the 
+        # special tokens [CLS] and [SEP], the part that overlaps with the 
+        # previous chunk, and its own part (stride)
+        # chunk composition -> [CLS, ...overlap..., ...stride..., SEP, ...PAD...]
+        num_chunks = chunks.shape[0]
+        chunk_len = chunks.shape[1]
+        
+        clean_chunks = []
+        for i, chunk in enumerate(chunks):
+            chunk_dict = {}
+            # Save special tokens' embeddings
+            chunk_dict["cls"] = chunk[0].unsqueeze(0)
+            sep_index = (ids[i] == self.sep_id).nonzero(as_tuple=True)[0]
+            chunk_dict["sep"] = chunk[sep_index]
+            # Treat edge cases (first chunk no previous overlap, last chunk padding etc.)
+            if i == 0:
+                # First chunk doesn't overlap with previous (inexistent) chunk
+                chunk_dict["overlap"] = None
+                chunk_dict["stride"] = chunk[1:sep_index]
+            else:
+                # Save overlap part: first overlap tokens after CLS
+                chunk_dict["overlap"] = chunk[1:self.overlap+1]
+                assert len(chunk_dict["overlap"]) == self.overlap, f"overlap size is different from given overlap"
+                # Save stride, between overlap and SEP
+                chunk_dict["stride"] = chunk[self.overlap+1: sep_index]
+            # If last chunk then may contain padding
+            if i == len(chunks)-1:
+                # Check if SEP is last index, if not then has PAD
+                if sep_index != chunk_len - 1:
+                    chunk_dict["padding"] = chunk[sep_index + 1:]
+            clean_chunks.append(chunk_dict)
+        return clean_chunks
+
+    def _merge_chunks_emb_avg(self, clean_chunks: list):
+        """
+        Takes a list of pre-processed chunks dictionaries, and
+        merge them into a single sequence with normalization.
+        
+        Args:
+            clean_chunks: List of dictionaries that map each chunk's part
+                          with keys "cls", "sep", "overlap", "stride" and "padding"
+        Returns:
+            recon: Tensor of shape [total_length, emb_dim] in the form [CLS, ...embeddings..., SEP, padding...]
+                    corresponding to the merged embeddings that form the original data sequence.
+        """
+        emb_dim = clean_chunks[0]["cls"].shape[-1]
+        device = clean_chunks[0]["cls"].device
+        
+        final_cls = torch.zeros((1, emb_dim), device=device)
+        final_sep = torch.zeros((1, emb_dim), device=device)
+        recon = None
+        for i in range(len(clean_chunks)):
+            # Only start concating after first chunk
+            if i != 0:
+                overlap_mean = (prev_chunk_dict["stride"][-self.overlap:] + clean_chunks[i]["overlap"]) / 2
+                if recon is None:
+                    recon = torch.cat((prev_chunk_dict["stride"][:-self.overlap], overlap_mean))
+                else:
+                    recon = torch.cat((recon, prev_chunk_dict["stride"][:-self.overlap], overlap_mean))
+
+            final_cls += clean_chunks[i]["cls"]
+            final_sep += clean_chunks[i]["sep"]
+            prev_chunk_dict = clean_chunks[i]
+
+            if i == len(clean_chunks)-1:
+                final_cls = final_cls / len(clean_chunks)
+                final_sep = final_sep / len(clean_chunks)
+                if "padding" in clean_chunks[i]:
+                    recon = torch.cat((final_cls, recon, clean_chunks[i]["stride"], final_sep, clean_chunks[i]["padding"]))
+                else:
+                    recon = torch.cat((final_cls, recon, clean_chunks[i]["stride"], final_sep))
+        
+        return recon
+    
+    def _merge_input_data(self, clean_input):
+        recon = None
+        for i in range(len(clean_input)):
+            # Only start concating after first chunk
+            if i != 0:
+                # Check if overlap is correct, each token_id/label should be the exact same
+                is_overlap_correct = torch.equal(prev_chunk_dict["stride"][-self.overlap:], clean_input[i]["overlap"]) 
+                assert is_overlap_correct, f"overlap not correct.\n previous stride: {prev_chunk_dict['stride']}\n curr_overlap: {clean_input[i]['overlap']}"
+                if recon is None:
+                    recon = torch.cat((prev_chunk_dict["stride"], clean_input[i]["stride"]))
+                else:
+                    recon = torch.cat((recon, clean_input[i]["stride"]))
+                # If last part of chunk, treat padding
+                if i == len(clean_input)-1:
+                    if "padding" in clean_input[i]:
+                        recon = torch.cat((clean_input[i]["cls"], recon, clean_input[i]["sep"], clean_input[i]["padding"]))
+                    else:
+                        recon = torch.cat((clean_input[i]["cls"], recon, clean_input[i]["sep"]))
+            prev_chunk_dict = clean_input[i]
+        return recon
+
+    def print_clean_chunks_dict(self, clean_chunks):
+        for d in clean_chunks:
+            for key, value in d.items():
+                if value is not None:  # Check if the value is not None
+                    print(f"{key}: shape = {value.shape}")
+                else:
+                    print(f"{key}: value is None")
+                if key == "input_ids":
+                    print(f"{key}: tokens = {self.tokenizer.convert_ids_to_tokens(value[0])}")
+            print("---------------------------")
+
+
+        
+   
