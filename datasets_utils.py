@@ -1,5 +1,6 @@
 from datasets import load_dataset
 from torch.utils.data import DataLoader
+from torch.nn.utils.rnn import pad_sequence
 import torch
 from transformers import DataCollatorForTokenClassification
 
@@ -205,7 +206,7 @@ class SplitInstanceCollate:
             # Get length of current input_ids
             seq_len = len(input_ids)
             tokens = self.tokenizer.convert_ids_to_tokens(input_ids)
-            print(f"instance({idx}), seq_len: {seq_len}, tokens: {tokens}")
+            #print(f"instance({idx}), seq_len: {seq_len}, tokens: {tokens}")
             #print(f"labels: {labels}")
             # Check if current instance is longer than the max allowed
             if seq_len <= self.max_length:
@@ -284,24 +285,17 @@ class NerSlidingWindowReconstructor():
                 merged_emb = self._merge_chunks_emb_avg(clean_chunks_emb)
                 merged_ids = self._merge_input_data(clean_ids)
                 merged_labels = self._merge_input_data(clean_labels)
-                # self.print_clean_chunks_dict(clean_chunks_emb)
-                # print("=====IDS=====")
-                # self.print_clean_chunks_dict(clean_ids)
-                # print("=====LABELS=====")
-                # self.print_clean_chunks_dict(clean_labels)
-                #_merge_chunks_emb_avg(clean_chunks_emb, clean_ids)
-               
                 reconstructed_batch["embeddings"].append(merged_emb)
                 reconstructed_batch["input_ids"].append(merged_ids)
                 reconstructed_batch["labels"].append(merged_labels)
             else:
-                reconstructed_batch["embeddings"].append(curr_chunk)
-                reconstructed_batch["input_ids"].append(chunks_ids[i])
-                reconstructed_batch["labels"].append(chunks_labels[i])
-
-        reconstructed_batch["embeddings"] = torch.stack(reconstructed_batch["embeddings"])
-        reconstructed_batch["input_ids"] = torch.stack(reconstructed_batch["input_ids"])
-        reconstructed_batch["labels"] = torch.stack(reconstructed_batch["labels"])
+                reconstructed_batch["embeddings"].append(curr_chunk.squeeze(0))
+                reconstructed_batch["input_ids"].append(chunks_ids[i].squeeze(0))
+                reconstructed_batch["labels"].append(chunks_labels[i].squeeze(0))
+        
+        reconstructed_batch["embeddings"] = pad_sequence(reconstructed_batch["embeddings"], batch_first=True)
+        reconstructed_batch["input_ids"] = pad_sequence(reconstructed_batch["input_ids"], batch_first=True)
+        reconstructed_batch["labels"] = pad_sequence(reconstructed_batch["labels"], batch_first=True)
         return reconstructed_batch
                 
     def _split_chunks(self, chunks, ids) -> list:
@@ -376,8 +370,8 @@ class NerSlidingWindowReconstructor():
                 else:
                     recon = torch.cat((recon, prev_chunk_dict["stride"][:-self.overlap], overlap_mean))
 
-            final_cls += clean_chunks[i]["cls"]
-            final_sep += clean_chunks[i]["sep"]
+            final_cls = final_cls + clean_chunks[i]["cls"]
+            final_sep = final_sep + clean_chunks[i]["sep"]
             prev_chunk_dict = clean_chunks[i]
 
             if i == len(clean_chunks)-1:
