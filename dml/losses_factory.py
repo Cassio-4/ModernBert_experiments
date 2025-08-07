@@ -2,24 +2,35 @@ import torch
 from pytorch_metric_learning import losses, miners
 
 def get_loss_function(loss_name, **kwargs):
-    loss_functions = {
-        "AngularLoss": losses.AngularLoss,
-        "ArcFaceLoss": losses.ArcFaceLoss,
-        "ContrastiveLoss": losses.ContrastiveLoss,
-        "HistogramLoss": losses.HistogramLoss,
-        "MarginLoss": losses.MarginLoss,
-        "MultiSimilarityLoss": losses.MultiSimilarityLoss,
-        "NPairsLoss": losses.NPairsLoss,
-        "ProxyNCALoss": losses.ProxyNCALoss,
-        "SignalToNoiseRatioContrastiveLoss": losses.SignalToNoiseRatioContrastiveLoss,
-        "SoftTripleLoss": losses.SoftTripleLoss,
-        "TripletMarginLoss": losses.TripletMarginLoss
-    }
+    if loss_name == "AngularLoss":
+        return losses.AngularLoss(**kwargs)
+    elif loss_name == "ArcFaceLoss":
+        return losses.ArcFaceLoss(num_classes=13, embedding_size=768, margin=28.6, scale=64, **kwargs)
+    elif loss_name == "ContrastiveLoss":
+        return losses.ContrastiveLoss(**kwargs)
+    elif loss_name == "HistogramLoss":
+        return losses.HistogramLoss(**kwargs)
+    elif loss_name == "MarginLoss":
+        return losses.MarginLoss(num_classes=13, **kwargs)
+    elif loss_name == "MultiSimilarityLoss":
+        return losses.MultiSimilarityLoss(**kwargs)
+    elif loss_name == "NPairsLoss":
+        return losses.NPairsLoss(**kwargs)
+    elif loss_name == "ProxyNCALoss":
+        return losses.ProxyNCALoss(num_classes=13, embedding_size=768, **kwargs)
+    elif loss_name == "SignalToNoiseRatioContrastiveLoss":
+        return losses.SignalToNoiseRatioContrastiveLoss(**kwargs)
+    elif loss_name == "SoftTripleLoss":
+        return losses.SoftTripleLoss(num_classes=13, embedding_size=768, **kwargs)
+    elif loss_name == "SphereFaceLoss":
+        return losses.SphereFaceLoss(num_classes=13, embedding_size=768, **kwargs)
+    elif loss_name == "TripletMarginLoss":
+        return losses.TripletMarginLoss(**kwargs)
+    else:
+        raise ValueError(f"Loss function '{loss_name}' is not recognized.")
 
-    if loss_name not in loss_functions:
-        raise ValueError(f"Loss function '{loss_name}' is not recognized. Available options are: {list(loss_functions.keys())}")
-
-    return loss_functions.get(loss_name)(**kwargs)
+def requires_optimizer(loss_name):
+    return loss_name in ["ArcFaceLoss", "ProxyNCALoss", "SoftTripleLoss", "SphereFaceLoss"]
 
 def get_miner(miner_name, **kwargs):
     available_miners = {
@@ -27,7 +38,7 @@ def get_miner(miner_name, **kwargs):
         }
     if miner_name not in available_miners:
         raise ValueError(f"Miner '{miner_name}' is not recognized. Available options are: {list(available_miners.keys())}")
-    return available_miners.get(miner_name)(margin=0.2, type_of_triplets="semihard")#(**kwargs)
+    return available_miners.get(miner_name)(margin=0.2, type_of_triplets="semihard")
 
 def prioritized_subsample(embeddings: torch.Tensor, labels: torch.Tensor, max_samples: int = 1000, outside_class: int = 0):
     """
@@ -75,12 +86,23 @@ class DML_LossesWrapper:
     """
     def __init__(self, loss_name="TripletMarginLoss", miner_name=None, max_samples=500, **kwargs):
         self.loss_func = get_loss_function(loss_name, **kwargs)
+        self.loss_optimizer = None
+        self.miner = None
+        if requires_optimizer(loss_name):
+            self.loss_optimizer = torch.optim.Adam(self.loss_func.parameters(), lr=1e-4)
+            print("Set up optimizer for loss function.")
         if miner_name is not None:
             self.miner = get_miner(miner_name, **kwargs)
             print(f"Using miner: {miner_name}")
-        else:
-            self.miner = None
         self.max_samples = max_samples
+    
+    def loss_optimizer_zero_grad(self):
+        if self.loss_optimizer is not None:
+            self.loss_optimizer.zero_grad()
+
+    def loss_optimizer_step(self):
+        if self.loss_optimizer is not None:
+            self.loss_optimizer.step()
 
     def __call__(self, embeddings, labels):
         # If number of samples is less than or equal to max_samples, no need to subsample

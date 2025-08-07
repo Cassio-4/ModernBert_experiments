@@ -295,7 +295,7 @@ class NerSlidingWindowReconstructor():
         
         reconstructed_batch["embeddings"] = pad_sequence(reconstructed_batch["embeddings"], batch_first=True)
         reconstructed_batch["input_ids"] = pad_sequence(reconstructed_batch["input_ids"], batch_first=True)
-        reconstructed_batch["labels"] = pad_sequence(reconstructed_batch["labels"], batch_first=True)
+        reconstructed_batch["labels"] = pad_sequence(reconstructed_batch["labels"], batch_first=True, padding_value=-100)
         return reconstructed_batch
                 
     def _split_chunks(self, chunks, ids) -> list:
