@@ -32,6 +32,13 @@ def init_args():
         help="After fine-tuning, loads best model and generate test results."
     )
     parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Specify a checkpoint path to load the model from. This takes priority over the config " \
+        "file's results_dir setting. If not set, uses the results_dir from the config file."
+    )
+    parser.add_argument(
         "--train",
         action='store_true',
         default=True,
@@ -61,10 +68,15 @@ def init_experiment(config, dataset, loss_name):
                                 collate_fn=collate_fn, select=config.get("select", -1))
     reconstructor = NerSlidingWindowReconstructor(hf_tokenizer, config["overlap"])
     # Optimizer
-    optimizer = optim.Adam(model.parameters(), lr=config['learning_rate'])
-    # Pytorch Metric Learning setup
-    MINER_NAME = "TripletMarginMiner"
-    loss_func = DML_LossesWrapper(loss_name=loss_name, miner_name=MINER_NAME, max_samples=config['max_samples'])
+    if args.train:
+        optimizer = optim.Adam(model.parameters(), lr=config['learning_rate'])
+        # Pytorch Metric Learning setup
+        MINER_NAME = "TripletMarginMiner"
+        loss_func = DML_LossesWrapper(loss_name=loss_name, miner_name=MINER_NAME, max_samples=config['max_samples'])
+    else:
+        optimizer = None
+        MINER_NAME = None
+        loss_func = DML_LossesWrapper(loss_name=loss_name, max_samples=config['max_samples'])
     # Logging
     experiment_name = f"{dataset}_{loss_name}_miner-{MINER_NAME}_max_samples-{config['max_samples']}"
     print(f"Running experiment: {experiment_name}")
@@ -83,7 +95,7 @@ def run_experiments(config, args):
             if args.train:
                 dml_engine.train()
             if args.test:
-                dml_engine.load_checkpoint()
+                dml_engine.load_checkpoint(args.checkpoint)
                 dml_engine.test()
             if args.plot_umap:
                 dml_engine.plot_umap()

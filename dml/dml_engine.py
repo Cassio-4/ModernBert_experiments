@@ -155,12 +155,13 @@ class DMLEngine:
         stacked_labels = torch.cat(labels_lst)
         return stacked_embeddings, stacked_labels
     
-    def load_checkpoint(self):
-        # Load best model
-        print(f"Loading best model from {self.results_dir}.pth")
-        self.model.load_state_dict(torch.load(os.path.join(self.results_dir, "best_model.pth"), 
-                                              map_location=self.device))
+    def load_checkpoint(self, checkpoint_path=None):
+        if checkpoint_path is None:
+            checkpoint_path = os.path.join(self.results_dir, "best_model.pth")
+
+        self.model.load_state_dict(torch.load(), checkpoint_path, map_location=self.device)
         self.loaded_local_checkpoint = True
+        print(f"Loaded best model from {checkpoint_path}")
     
     def plot_umap(self, dataloader_name="test", plot_outside=True):
         embeddings, labels = self.get_all_embeddings(dataloader_name=dataloader_name)
