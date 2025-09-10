@@ -25,6 +25,7 @@ class DMLEngine:
     def __init__(self, config, model, tokenizer, loss_func:DML_LossesWrapper, optimizer, train_loader, 
                  val_loader, test_loader, id2label=None, reconstructor=None, device=None, results_dir=None):
         self.config = config
+        self.device = device
         if device is None:
             self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model = model.to(self.device)
@@ -55,15 +56,15 @@ class DMLEngine:
                 attention_mask = data['attention_mask'].to(self.device)
                 if train:
                     self.optimizer.zero_grad()
-                    self.dml_loss.loss_optimizer_zero_grad()
+                    self.loss_func.loss_optimizer_zero_grad()
                 embeddings = self.model(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
                 recon_batch = self.reconstructor.reconstruct_sequences(embeddings, instance_ids, data)
                 emb_masked, labels_masked = reshape_embeddings_and_labels(recon_batch["embeddings"], recon_batch["labels"])
-                loss = self.dml_loss(emb_masked, labels_masked)
+                loss = self.loss_func(emb_masked, labels_masked)
                 if train:
                     loss.backward()
                     self.optimizer.step()
-                    self.dml_loss.loss_optimizer_step()
+                    self.loss_func.loss_optimizer_step()
                 total_loss += loss.item()
                 num_batches += 1
         mean_loss = total_loss / num_batches if num_batches > 0 else 0.0
@@ -159,9 +160,16 @@ class DMLEngine:
         if checkpoint_path is None:
             checkpoint_path = os.path.join(self.results_dir, "best_model.pth")
 
-        self.model.load_state_dict(torch.load(), checkpoint_path, map_location=self.device)
+        self.model.load_state_dict(torch.load(checkpoint_path, map_location=self.device))
         self.loaded_local_checkpoint = True
         print(f"Loaded best model from {checkpoint_path}")
+    
+    def freeze_backbone(self):
+        print("Freezing backbone model parameters...")
+        for param in self.model.parameters():
+            param.requires_grad = False
+        for param in self.model.encoder.layer[-1].parameters():
+            param.requires_grad = True
     
     def plot_umap(self, dataloader_name="test", plot_outside=True):
         embeddings, labels = self.get_all_embeddings(dataloader_name=dataloader_name)
@@ -192,11 +200,11 @@ class DMLEngine:
             for i in unique_labels
         ]
         plt.legend(handles=handles, title="Label Names", bbox_to_anchor=(1.05, 1), loc='upper left')
-        plt.title("UMAP projection of test token embeddings")
+        plt.title("UMAP projection of test token embeddings DeBERTa SoftTripleLoss")
         plt.xlabel("UMAP-1")
         plt.ylabel("UMAP-2")
         plt.tight_layout()
-        plt.savefig("umap_test_embeddings_no_Outside.png", dpi=300)
+        plt.savefig("umap_test_embeddings_DeBERTa_noO.png", dpi=300)
         plt.close()
         print("Saved UMAP plot to umap_embeddings.png")
     

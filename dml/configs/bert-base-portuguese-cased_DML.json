@@ -1,0 +1,19 @@
+{
+  "datasets": ["lener"],
+  "losses": ["SoftTripleLoss"],
+  "model_checkpoint": "neuralmind/bert-base-portuguese-cased",
+  "learning_rate": 2e-5,
+  "max_seq_length": 512,
+  "overlap": 128,
+  "batch_size": 16,
+  "num_epochs": 50,
+  "patience": 7,
+  "select": -1,
+  "seed": 42,
+  "adam_betas": [0.9, 0.98],
+  "adam_epsilon": 1e-6,
+  "wd": 8e-6,
+  "optim": "adam",
+  "max_samples": 900,
+  "knn_K": [1, 3]
+}

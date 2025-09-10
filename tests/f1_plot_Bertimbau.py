@@ -6,34 +6,18 @@ models = [
     "AngularLoss_NoMiner",
     "ArcFaceLoss_NoMiner",
     "ContrastiveLoss_NoMiner",
-    "MarginLoss_NoMiner",
     "MultiSimilarityLoss_NoMiner",
     "NPairsLoss_NoMiner",
     "ProxyNCALoss_NoMiner",
     "SignalToNoiseRatioLoss_NoMiner",
     "SoftTripleLoss_NoMiner",
     "SphereFaceLoss_NoMiner",
-    "TripletMarginLoss_NoMiner", ###
-    "ArcFaceLoss_Miner",
-    "ContrastiveLoss_Miner",
-    "MultiSimilarityLoss_Miner",
-    "NPairsLoss_Miner",
-    "ProxyNCALoss_Miner",
-    "SignalToNoiseRatioLoss_Miner", ###
-    "AngularLoss_Frozen",
-    "SoftTripleLoss_Frozen"
+    "TripletMarginLoss_NoMiner"
 ]
-f1_scores_K1 = [0.782, 0.876, 0.779, 0.816, 0.850,
-                0.761, 0.880, 0.805, 0.890, 0.842,
-                0.851, 0.845, 0.842, 0.877, 0.852,
-                0.800, 0.835, 0.733, 0.854 
-]
-f1_scores_K3 = [0.769, 0.881, 0.784, 0.814, 0.859,
-                0.780, 0.886, 0.804, 0.897, 0.842,
-                0.863, 0.838, 0.853, 0.879, 0.852,
-                0.812, 0.841, 0.726, 0.847 
-]
-
+f1_scores_K1 = [0.820, 0.894, 0.802, 0.887, 0.797,
+                0.900, 0.849, 0.909, 0.762, 0.873]
+f1_scores_K3 = [0.813, 0.900, 0.797, 0.891, 0.814,
+                0.901, 0.847, 0.910, 0.768, 0.872]
 # Define colors similar to the paper (green and orange)
 colors = ['#4CAF50', '#FF9800']  # Green and orange
 
@@ -49,7 +33,7 @@ bars_without_reg = ax.barh(y + height/2, f1_scores_K3, height, label='K = 3', co
 # Add labels and title
 ax.set_xlabel('F1 Score', fontsize=12)
 ax.set_ylabel('Experiments', fontsize=12)
-ax.set_title('F1 Score for NER with Deep Metric Learning on DeBERTa', fontsize=14)
+ax.set_title('F1 Score for NER with Deep Metric Learning on BERTimbau', fontsize=14)
 ax.set_yticks(y)
 ax.set_yticklabels(models)
 ax.legend(loc='lower right')
@@ -69,7 +53,7 @@ add_value_labels(bars_without_reg)
 
 # Adjust layout and show plot
 plt.tight_layout()
-plt.savefig('f1_plot.pdf')
+plt.savefig('f1_plot_bertimbau.pdf')
 
 # Close the plot to prevent it from being displayed (optional)
 plt.close() 

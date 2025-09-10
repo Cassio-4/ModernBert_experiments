@@ -28,7 +28,7 @@ def init_args():
     parser.add_argument(
         "--test",
         action='store_true',
-        default=True,
+        default=False,
         help="After fine-tuning, loads best model and generate test results."
     )
     parser.add_argument(
@@ -39,22 +39,28 @@ def init_args():
         "file's results_dir setting. If not set, uses the results_dir from the config file."
     )
     parser.add_argument(
+        "--freeze_backbone",
+        action='store_true',
+        default=False,
+        help="Freezes every layer except last one of the encoder."
+    )
+    parser.add_argument(
         "--train",
         action='store_true',
-        default=True,
+        default=False,
         help="If set, trains the model on the datasets specified in the config file."
     )
     parser.add_argument(
         "--plot_umap",
         action='store_true',
-        default=True,
+        default=False,
         help="If set, loads model checkpoint and plots UMAP with its embeddings."
     )
     
     args = parser.parse_args()
     return args
 
-def init_experiment(config, dataset, loss_name):
+def init_experiment(config, args, dataset, loss_name):
     # Model
     model = AutoModel.from_pretrained(config['model_checkpoint'])
     model = model.to(device)
@@ -71,7 +77,7 @@ def init_experiment(config, dataset, loss_name):
     if args.train:
         optimizer = optim.Adam(model.parameters(), lr=config['learning_rate'])
         # Pytorch Metric Learning setup
-        MINER_NAME = "TripletMarginMiner"
+        MINER_NAME = None
         loss_func = DML_LossesWrapper(loss_name=loss_name, miner_name=MINER_NAME, max_samples=config['max_samples'])
     else:
         optimizer = None
@@ -80,7 +86,7 @@ def init_experiment(config, dataset, loss_name):
     # Logging
     experiment_name = f"{dataset}_{loss_name}_miner-{MINER_NAME}_max_samples-{config['max_samples']}"
     print(f"Running experiment: {experiment_name}")
-    results_dir = os.path.join("./dml/results/WithMiner", experiment_name)
+    results_dir = os.path.join("./dml/results/NoMiner", experiment_name)
     os.makedirs(results_dir, exist_ok=True)
     # Create engine
     dml_engine = DMLEngine(config, model, hf_tokenizer, loss_func, optimizer, train_loader, 
@@ -90,15 +96,18 @@ def init_experiment(config, dataset, loss_name):
 def run_experiments(config, args):
     for dataset_name in config['datasets']:
         for loss_name in config['losses']:
-            dml_engine = init_experiment(config, dataset_name, loss_name)
-            # TRAIN
+            dml_engine = init_experiment(config, args, dataset_name, loss_name)
+            if args.freeze_backbone:
+                dml_engine.freeze_backbone()
             if args.train:
                 dml_engine.train()
             if args.test:
                 dml_engine.load_checkpoint(args.checkpoint)
                 dml_engine.test()
             if args.plot_umap:
-                dml_engine.plot_umap()
+                if not dml_engine.loaded_local_checkpoint:
+                    dml_engine.load_checkpoint(args.checkpoint)
+                dml_engine.plot_umap(plot_outside=False)
 
 def run_configs(configs_paths_lst: list, args):
     for config_path in configs_paths_lst:
