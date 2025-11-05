@@ -195,3 +195,5 @@ distilbert/distilbert-base-uncased_lener/checkpoint-245/rng_state.pth
 distilbert/distilbert-base-uncased_lener/checkpoint-245/scheduler.pt
 distilbert/distilbert-base-uncased_lener/checkpoint-245/special_tokens_map.json
 distilbert/distilbert-base-uncased_lener/checkpoint-245/tokenizer_config.json
+*.pth
+*summary*.txt
