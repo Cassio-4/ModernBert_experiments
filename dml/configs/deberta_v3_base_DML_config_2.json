@@ -1,6 +1,6 @@
 {
   "datasets": ["lener"],
-  "losses": ["SoftTripleLoss"],
+  "losses": [""],
   "model_checkpoint": "microsoft/deberta-v3-base",
   "learning_rate": 2e-5,
   "max_seq_length": 512,

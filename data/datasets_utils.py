@@ -136,7 +136,7 @@ def get_dataloaders(tokenized_aligned_dataset, config, splits=[], collate_fn=Non
         train_dataset = torch_ds['train'].select(range(select))
         eval_dataset = torch_ds['validation'].select(range(select))
         test_dataset = torch_ds['test'].select(range(select))
-
+    # lener train_dataset is a map-style dataset
     # Create DataLoaders
     bs = config["batch_size"]
     train_loader, val_loader, test_loader = None, None, None
@@ -173,7 +173,7 @@ class SplitInstanceCollate:
         # If adding special tokens surpasses max sequence length
         if len(input_ids) + special_tokens_offset > self.max_length:
             diff = len(input_ids) + special_tokens_offset - self.max_length
-        assert 0 <= diff <= 2, f"impossible for diff: {diff} to be lower than 0 or larger than 2" 
+        assert 0 <= diff <= 2, f"impossible for diff: {diff} to be lower than 0 or larger than 2"
         # Throw away last diff tokens, next chunk will take them they dont fit here
         input_ids = input_ids[:seq_len - diff]
         att_mask = att_mask[:seq_len - diff]

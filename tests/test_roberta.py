@@ -8,7 +8,7 @@ sys.path.append(parent)
 import torch
 torch.set_float32_matmul_precision('high')
 from models.model_utils import load_model
-from datasets_utils import load_and_preprocess_dataset, unpack_dataset_info
+from data.datasets_utils import load_and_preprocess_dataset, unpack_dataset_info
 import json
 from transformers import AutoTokenizer, RobertaModel
 from datasets import load_dataset

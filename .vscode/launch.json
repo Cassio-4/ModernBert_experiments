@@ -1,0 +1,39 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: main_dml.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "env": {"CUDA_VISIBLE_DEVICES": "1"},
+            "args": ["--train", "--test", "--config", "bert-base-portuguese-cased_DML.json"],
+            "justMyCode": false
+        },
+        {
+            "name": "Python Debugger: main_ttt.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "env": {"CUDA_VISIBLE_DEVICES": "1"},
+            "args": ["--train", "--model_config", "bert-base-portuguese-cased.json", "--data_set", "lener"],
+            "justMyCode": false
+        },
+        {
+            "name": "Python Debugger: TTT test with checkpoint loading",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main_ttt.py",
+            "console": "integratedTerminal",
+            "env": {"CUDA_VISIBLE_DEVICES": "1"},
+            "args": ["--test_std", "--model_config", "1_bert.json", 
+            "--data_set", "lener", "--load_checkpoint"],
+            "justMyCode": false
+        }
+    ]
+}

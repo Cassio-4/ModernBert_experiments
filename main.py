@@ -3,7 +3,7 @@ import json
 import torch
 import argparse
 from models.model_utils import load_model
-from datasets_utils import load_and_preprocess_dataset, unpack_dataset_info
+from data.datasets_utils import load_and_preprocess_dataset, unpack_dataset_info
 from engine import NEREngine
 from transformers import AutoTokenizer, DataCollatorForTokenClassification
 
