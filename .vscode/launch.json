@@ -15,24 +15,23 @@
             "justMyCode": false
         },
         {
-            "name": "Python Debugger: main_ttt.py",
+            "name": "Debug TTT: train.py - module launch",
             "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
+            "module": "ttt.train",
             "console": "integratedTerminal",
             "env": {"CUDA_VISIBLE_DEVICES": "1"},
-            "args": ["--train", "--model_config", "bert-base-portuguese-cased.json", "--data_set", "lener"],
+            "args": ["--config", "1_bert.yaml"],
             "justMyCode": false
         },
         {
-            "name": "Python Debugger: TTT test with checkpoint loading",
+            "name": "Python Debugger: TTT train",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/main_ttt.py",
+            "program": "${workspaceFolder}/ttt/train.py",
             "console": "integratedTerminal",
             "env": {"CUDA_VISIBLE_DEVICES": "1"},
-            "args": ["--test_std", "--model_config", "1_bert.json", 
-            "--data_set", "lener", "--load_checkpoint"],
+            "args": ["--config", "1_bert.yaml"],
             "justMyCode": false
         }
     ]

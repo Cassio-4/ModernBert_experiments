@@ -4,7 +4,7 @@ from transformers.models.bert.modeling_bert import BertOnlyMLMHead
 from torch import nn
 from typing import Optional
 
-def build_model(model_cfg, num_labels):
+def build_model(config):
 	print('Building model...')
 	net = AutoModelForTokenClassification.from_pretrained(model_cfg['model_checkpoint'], num_labels=num_labels).cuda()
 	if model_cfg['shared'] == 'layer3':

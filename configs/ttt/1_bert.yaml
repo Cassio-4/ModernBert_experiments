@@ -1,0 +1,24 @@
+model:
+  hf_checkpoint: "neuralmind/bert-base-portuguese-cased"
+  shared: "layer3"
+
+training:
+  seed: 42
+  learning_rate: 2e-4
+  num_epochs: 100
+  patience: 7
+  wd: 8e-6
+
+optimizer:
+  type: "sgd"
+  momentum: 0.9
+  weight_decay: 5e-4
+
+output:
+  experiment_name: "ttt_1_bert_base_pt-cased"
+  output_dir: "../outputs/ttt/1_bert"
+  
+
+  
+  
+  
